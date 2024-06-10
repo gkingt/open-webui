@@ -21,11 +21,11 @@
 		<div class="m-auto pb-10 flex flex-col justify-center">
 			<div class="max-w-md">
 				<div class="text-center dark:text-white text-2xl font-medium z-50">
-					è´¦æˆ·å¾…æ¿€æ´»
+					ÕË»§´ý¼¤»î
 				</div>
 
 				<div class=" mt-4 text-center text-sm dark:text-gray-200 w-full">
-					æ‚¨çš„å¸æˆ·å½“å‰å¤„äºŽå¾…æ¿€æ´»çŠ¶æ€.<br /> è‹¥è¦è®¿é—® ChatK,è¯·è”ç³»ç®¡ç†å‘˜
+					ÄúµÄÕÊ»§µ±Ç°´¦ÓÚ´ý¼¤»î×´Ì¬.<br /> ÈôÒª·ÃÎÊ ChatK,ÇëÁªÏµ¹ÜÀíÔ±
 				</div>
 
 				{#if adminDetails}
