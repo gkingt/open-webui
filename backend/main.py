@@ -1073,9 +1073,9 @@ async def update_pipeline_valves(
 async def get_app_config():
     # Checking and Handling the Absence of 'ui' in CONFIG_DATA
 
-    default_locale = "en-US"
+    default_locale = "zh-CN"
     if "ui" in CONFIG_DATA:
-        default_locale = CONFIG_DATA["ui"].get("default_locale", "en-US")
+        default_locale = CONFIG_DATA["ui"].get("default_locale", "zh-CN")
 
     # The Rest of the Function Now Uses the Variables Defined Above
     return {
