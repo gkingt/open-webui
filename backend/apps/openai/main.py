@@ -359,58 +359,77 @@ async def generate_chat_completion(
     model_info = Models.get_model_by_id(model_id)
 
     if model_info:
-        if model_info.base_model_id:
-            payload["model"] = model_info.base_model_id
+        payload["model"] = model_info.base_model_id or payload["model"]
+        model_params = model_info.params.model_dump()
 
-        model_info.params = model_info.params.model_dump()
+        if model_params:
+            payload.update({
+                k: (float(v) if k == "temperature" else int(v))
+                for k, v in model_params.items()
+                if k in {"temperature", "top_p", "max_tokens", "frequency_penalty"}
+            })
+            payload.update({
+                k: v
+                for k, v in model_params.items()
+                if k in {"seed", "stop"}
+            })
+            if "stop" in model_params:
+                payload["stop"] = [bytes(stop, "utf-8").decode("unicode_escape") for stop in model_params["stop"]]
 
-        if model_info.params:
-            if model_info.params.get("temperature", None) is not None:
-                payload["temperature"] = float(model_info.params.get("temperature"))
+        # System message handling
+        if model_params.get("system"):
+            system_message = {"role": "system", "content": model_params["system"]}
+        else:
+            system_message = None
 
-            if model_info.params.get("top_p", None):
-                payload["top_p"] = int(model_info.params.get("top_p", None))
-
-            if model_info.params.get("max_tokens", None):
-                payload["max_tokens"] = int(model_info.params.get("max_tokens", None))
-
-            if model_info.params.get("frequency_penalty", None):
-                payload["frequency_penalty"] = int(
-                    model_info.params.get("frequency_penalty", None)
-                )
-
-            if model_info.params.get("seed", None):
-                payload["seed"] = model_info.params.get("seed", None)
-
-            if model_info.params.get("stop", None):
-                payload["stop"] = (
-                    [
-                        bytes(stop, "utf-8").decode("unicode_escape")
-                        for stop in model_info.params["stop"]
-                    ]
-                    if model_info.params.get("stop", None)
-                    else None
-                )
-
-        if model_info.params.get("system", None):
-            # Check if the payload already has a system message
-            # If not, add a system message to the payload
-            if payload.get("messages"):
-                for message in payload["messages"]:
+        if payload.get("messages"):
+            if system_message:
+                for i, message in enumerate(payload["messages"]):
                     if message.get("role") == "system":
-                        message["content"] = (
-                            model_info.params.get("system", None) + message["content"]
-                        )
+                        message["content"] = model_params["system"] + message["content"]
                         break
                 else:
-                    payload["messages"].insert(
-                        0,
-                        {
-                            "role": "system",
-                            "content": model_info.params.get("system", None),
-                        },
-                    )
+                    payload["messages"].insert(0, {"role": "system", "content": model_params["system"]})
+            else:
+                payload["messages"] = [{"role": "system", "content": model_params["system"]}]
+        else:
+            if system_message:
+                payload["messages"] = [system_message]
+            else:
+                payload["messages"] = []
 
+        # Only add new user and assistant messages for gpt-4o
+        if payload.get("model") == "gpt-4o":
+            # New user message
+            user_message = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "图片里都有什么"},
+                    {"type": "image_url", "image_url": {"url": "111"}}
+                ]
+            }
+
+            # New assistant message
+            assistant_message = {
+                "role": "assistant",
+                "content": "图片中有一个简笔画风格的机器人，机器人有圆形的脸部，黑色的小眼睛，脸部中央有一条短线相连。机器人正在挥手，旁边有一个小气泡，里面写着“Hi”。背景是浅蓝色的天空，机器人外面有一个圆形的边框。这个机器人看起来像是大白（Baymax）——电影《超能陆战队》中的角色。"
+            }
+
+            if system_message:
+                for i, message in enumerate(payload["messages"]):
+                    if message.get("role") == "system":
+                        # 将用户消息和助手消息添加到system消息之后
+                        payload["messages"].insert(i + 1, user_message)
+                        payload["messages"].insert(i + 2, assistant_message)
+                        break
+                else:
+                    # 如果没有找到system消息，将system消息添加到最前面，并在其后添加新消息
+                    payload["messages"].insert(1, user_message)
+                    payload["messages"].insert(2, assistant_message)
+            else:
+                # 如果没有system消息，将用户消息和助手消息添加到最前面
+                payload["messages"].insert(0, user_message)
+                payload["messages"].insert(1, assistant_message)
     else:
         pass
 
