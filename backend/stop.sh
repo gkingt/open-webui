@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-cd "$SCRIPT_DIR" || exit
+PORT=8080
 
-PID_FILE=webui.pid
+# Find all PIDs using the specified port
+PIDS=$(lsof -t -i:$PORT)
 
-if [ -f "$PID_FILE" ]; then
-  PID=$(cat "$PID_FILE")
-  if ps -p $PID > /dev/null; then
-    echo "Stopping uvicorn with PID $PID"
-    kill $PID
-    rm "$PID_FILE"
-    echo "uvicorn stopped."
-  else
-    echo "No running uvicorn process found with PID $PID."
-    rm "$PID_FILE"
-  fi
+if [ -z "$PIDS" ]; then
+  echo "No process is running on port $PORT."
 else
-  echo "PID file not found. Is uvicorn running?"
+  echo "Stopping all processes on port $PORT..."
+  for PID in $PIDS; do
+    echo "Stopping process with PID $PID"
+    kill $PID
+  done
+  echo "All processes on port $PORT have been stopped."
 fi
