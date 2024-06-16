@@ -122,7 +122,8 @@ async def update_openai_key(form_data: KeysUpdateForm, user=Depends(get_admin_us
 async def speech(request: Request, user=Depends(get_verified_user)):
     idx = None
     try:
-        idx = app.state.config.OPENAI_API_BASE_URLS.index("https://api.openai.com/v1")
+        idx = app.state.config.OPENAI_API_BASE_URLS.index(
+            "https://api.openai.com/v1")
         body = await request.body()
         name = hashlib.sha256(body).hexdigest()
 
@@ -179,7 +180,8 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             )
 
     except ValueError:
-        raise HTTPException(status_code=401, detail=ERROR_MESSAGES.OPENAI_NOT_FOUND)
+        raise HTTPException(
+            status_code=401, detail=ERROR_MESSAGES.OPENAI_NOT_FOUND)
 
 
 async def fetch_url(url, key):
@@ -324,7 +326,8 @@ async def get_models(url_idx: Optional[int] = None, user=Depends(get_current_use
             response_data = r.json()
             if "api.openai.com" in url:
                 response_data["data"] = list(
-                    filter(lambda model: "gpt" in model["id"], response_data["data"])
+                    filter(
+                        lambda model: "gpt" in model["id"], response_data["data"])
                 )
 
             return response_data
@@ -366,13 +369,15 @@ async def generate_chat_completion(
 
         if model_info.params:
             if model_info.params.get("temperature", None) is not None:
-                payload["temperature"] = float(model_info.params.get("temperature"))
+                payload["temperature"] = float(
+                    model_info.params.get("temperature"))
 
             if model_info.params.get("top_p", None):
                 payload["top_p"] = int(model_info.params.get("top_p", None))
 
             if model_info.params.get("max_tokens", None):
-                payload["max_tokens"] = int(model_info.params.get("max_tokens", None))
+                payload["max_tokens"] = int(
+                    model_info.params.get("max_tokens", None))
 
             if model_info.params.get("frequency_penalty", None):
                 payload["frequency_penalty"] = int(
@@ -399,7 +404,8 @@ async def generate_chat_completion(
                 for message in payload["messages"]:
                     if message.get("role") == "system":
                         message["content"] = (
-                            model_info.params.get("system", None) + message["content"]
+                            model_info.params.get(
+                                "system", None) + message["content"]
                         )
                         break
                 else:
@@ -426,6 +432,45 @@ async def generate_chat_completion(
         if "max_tokens" not in payload:
             payload["max_tokens"] = 4000
         log.debug("Modified payload:", payload)
+    if payload.get("model") == "gpt-4o":
+        for message in payload["messages"]:
+            if message.get("role") == "system":
+                payload["messages"].insert(
+                    1,
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "图片里有什么"},
+                            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,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"}}
+                        ]
+                    },
+                )
+                payload["messages"].insert(
+                    2,
+                    {
+                        "role": "assistant",
+                        "content": "这是一张纯白色的图片，没有任何内容或图案。"
+                    },
+                )
+                break
+            else:
+                payload["messages"].insert(
+                    0,
+                    {
+                        "role": "user",
+                        "content": [
+                                {"type": "text", "text": "图片里有什么"},
+                                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,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"}}
+                        ]
+                    },
+                )
+                payload["messages"].insert(
+                    1,
+                    {
+                        "role": "assistant",
+                        "content": "这是一张纯白色的图片，没有任何内容或图案。"
+                    },
+                )
 
     # Convert the modified body back to JSON
     payload = json.dumps(payload)
@@ -481,7 +526,8 @@ async def generate_chat_completion(
                     error_detail = f"External: {res['error']['message'] if 'message' in res['error'] else res['error']}"
             except:
                 error_detail = f"External: {e}"
-        raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
+        raise HTTPException(
+            status_code=r.status if r else 500, detail=error_detail)
     finally:
         if not streaming and session:
             if r:
@@ -544,7 +590,8 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
                     error_detail = f"External: {res['error']['message'] if 'message' in res['error'] else res['error']}"
             except:
                 error_detail = f"External: {e}"
-        raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
+        raise HTTPException(
+            status_code=r.status if r else 500, detail=error_detail)
     finally:
         if not streaming and session:
             if r:

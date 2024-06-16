@@ -11,7 +11,7 @@ else
   echo "Stopping all processes on port $PORT..."
   for PID in $PIDS; do
     echo "Stopping process with PID $PID"
-    kill $PID
+    kill -9 $PID
   done
   echo "All processes on port $PORT have been stopped."
 fi
