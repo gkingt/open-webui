@@ -446,12 +446,13 @@ async def generate_chat_completion(
         }
         if payload.get("messages"):
             for message in payload["messages"]:
-                if message.get("role") == "system" and len(payload["messages"]) == 2:
+                if (message.get("role") == "system" and
+                    isinstance(payload["messages"][1].get("content", ""), str)):
                     payload["messages"].insert(1, user_message)
                     payload["messages"].insert(2, assistant_message)
                     break
             else:
-                if len(payload["messages"]) == 1:
+                if (isinstance(payload["messages"][0].get("content", ""), str)):
                     payload["messages"].insert(0, user_message)
                     payload["messages"].insert(1, assistant_message)
     # Convert the modified body back to JSON
