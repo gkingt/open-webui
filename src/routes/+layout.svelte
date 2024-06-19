@@ -86,12 +86,12 @@
 				await socket.set(_socket);
 
 				_socket.on('user-count', (data) => {
-					console.log('user-count', data);
+					// console.log('user-count', data);
 					activeUserCount.set(data.count);
 				});
 
 				_socket.on('usage', (data) => {
-					console.log('usage', data);
+					// console.log('usage', data);
 					USAGE_POOL.set(data['models']);
 				});
 
