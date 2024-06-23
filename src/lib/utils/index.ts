@@ -450,20 +450,22 @@ export const isValidHttpUrl = (string) => {
 };
 
 export const removeEmojis = (str) => {
-	// Regular expression to match emojis
-	const emojiRegex = /[\uD800-\uDBFF][\uDC00-\uDFFF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDE4F]/g;
+  // Regular expression to match emojis
+  const emojiRegex = /([\uD800-\uDBFF][\uDC00-\uDFFF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDE4F])/g;
 
-	// Replace emojis with an empty string
-	return str.replace(emojiRegex, '');
+  // Replace emojis with an empty string
+  return str.replace(emojiRegex, '');
 };
+
 
 // export const removeEmojis = (str) => {
 //   // Regular expression to match emojis
-//   const emojiRegex = /([\uD83D\uDE00-\uD83D\uDE4F]|[\uD83C\uDF00-\uDFFF]|[\uD83D\uDC00-\uDDFF]|[\uD83E\uDD00-\uDDFF]|[\uD83D\uDE80-\uDEFF]|[\uD83C\uDDE6-\uDDFF]|\u2600-\u26FF|\u2700-\u27BF)/g;
+//   const emojiRegex = /([\uD83D][\uDE00-\uDE4F]|[\uD83C][\uDF00-\uDFFF]|[\uD83D][\uDC00-\uDDFF]|[\uD83E][\uDD00-\uDDFF]|[\uD83D][\uDE80-\uDEFF]|[\uD83C][\uDDE6-\uDDFF]|[\u2600-\u26FF]|[\u2700-\u27BF])/g;
 
 //   // Replace emojis with an empty string
 //   return str.replace(emojiRegex, '');
 // };
+
 
 
 // export const extractSentences = (text) => {
