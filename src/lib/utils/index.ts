@@ -450,11 +450,11 @@ export const isValidHttpUrl = (string) => {
 };
 
 export const removeEmojis = (str) => {
-  // Regular expression to match emojis
-  const emojiRegex = /([\uD800-\uDBFF][\uDC00-\uDFFF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDE4F])/g;
+	// Regular expression to match emojis
+	const emojiRegex = /[\uD800-\uDBFF][\uDC00-\uDFFF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDE4F]/g;
 
-  // Replace emojis with an empty string
-  return str.replace(emojiRegex, '');
+	// Replace emojis with an empty string
+	return str.replace(emojiRegex, '');
 };
 
 

@@ -294,7 +294,7 @@ export const generateEmoji = async (
 
 	if (response) {
 		// Replace Unicode property escape with Unicode range for extended pictographic symbols
-		const emojiRegex = /[\uD83D\uDE00-\uD83D\uDE4F\uD83C\uDF00-\uD83D\uDDFF\uD83D\uDE80-\uD83D\uDEFF\uD83D\uDF00-\uD83D\uDF7F]/;
+		const emojiRegex = /[\uD83D[\uDE00-\uDE4F]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDDFF]|\uD83E[\uDD00-\uDDFF]|\uD83D[\uDE80-\uDEFF]|\uD83C[\uDDE6-\uDDFF]]/g;
 		if (emojiRegex.test(response)) {
 			return response.match(emojiRegex)[0];
 		}
