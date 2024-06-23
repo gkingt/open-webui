@@ -205,6 +205,54 @@ export const generateTitle = async (
 	return res?.choices[0]?.message?.content.replace(/["']/g, '') ?? 'New Chat';
 };
 
+// export const generateEmoji = async (
+// 	token: string = '',
+// 	model: string,
+// 	prompt: string,
+// 	chat_id?: string
+// ) => {
+// 	let error = null;
+
+// 	const res = await fetch(`${WEBUI_BASE_URL}/api/task/emoji/completions`, {
+// 		method: 'POST',
+// 		headers: {
+// 			Accept: 'application/json',
+// 			'Content-Type': 'application/json',
+// 			Authorization: `Bearer ${token}`
+// 		},
+// 		body: JSON.stringify({
+// 			model: model,
+// 			prompt: prompt,
+// 			...(chat_id && { chat_id: chat_id })
+// 		})
+// 	})
+// 		.then(async (res) => {
+// 			if (!res.ok) throw await res.json();
+// 			return res.json();
+// 		})
+// 		.catch((err) => {
+// 			console.log(err);
+// 			if ('detail' in err) {
+// 				error = err.detail;
+// 			}
+// 			return null;
+// 		});
+
+// 	if (error) {
+// 		throw error;
+// 	}
+
+// 	const response = res?.choices[0]?.message?.content.replace(/["']/g, '') ?? null;
+
+// 	if (response) {
+// 		if (/\p{Extended_Pictographic}/u.test(response)) {
+// 			return response.match(/\p{Extended_Pictographic}/gu)[0];
+// 		}
+// 	}
+
+// 	return null;
+// };
+
 export const generateEmoji = async (
 	token: string = '',
 	model: string,
@@ -245,13 +293,16 @@ export const generateEmoji = async (
 	const response = res?.choices[0]?.message?.content.replace(/["']/g, '') ?? null;
 
 	if (response) {
-		if (/\p{Extended_Pictographic}/u.test(response)) {
-			return response.match(/\p{Extended_Pictographic}/gu)[0];
+		// Replace Unicode property escape with Unicode range for extended pictographic symbols
+		const emojiRegex = /[\uD83D\uDE00-\uD83D\uDE4F\uD83C\uDF00-\uD83D\uDDFF\uD83D\uDE80-\uD83D\uDEFF\uD83D\uDF00-\uD83D\uDF7F]/;
+		if (emojiRegex.test(response)) {
+			return response.match(emojiRegex)[0];
 		}
 	}
 
 	return null;
 };
+
 
 export const generateSearchQuery = async (
 	token: string = '',
