@@ -1109,10 +1109,12 @@
 				errorMessage = innerError.error;
 			}
 		} else if ('message' in innerError) {
+			if (innerError.message.includes('DOCTYPE')) {
+				innerError.message = '请刷新页面重新尝试'
+			}
 			toast.error(innerError.message);
 			errorMessage = innerError.message;
 		}
-
 		responseMessage.error = {
 			content:
 				$i18n.t(`Uh-oh! There was an issue connecting to {{provider}}.`, {
