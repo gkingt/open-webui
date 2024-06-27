@@ -1110,7 +1110,7 @@
 			}
 		} else if ('message' in innerError) {
 			if (innerError.message.includes('DOCTYPE')) {
-				innerError.message = '请刷新页面重新尝试'
+				innerError.message = '请刷新页面后，等待5秒重新尝试'
 			}
 			toast.error(innerError.message);
 			errorMessage = innerError.message;
