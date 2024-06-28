@@ -511,32 +511,33 @@ export const removeFormattings = (str) => {
 };
 
 export const extractSentences = (text) => {
-	// This regular expression matches code blocks marked by triple backticks
+	// 这个正则表达式匹配由三重反引号标记的代码块
 	const codeBlockRegex = /```[\s\S]*?```/g;
 
 	let codeBlocks = [];
 	let index = 0;
 
-	// Temporarily replace code blocks with placeholders and store the blocks separately
+	// 临时用占位符替换代码块，并将代码块单独存储
 	text = text.replace(codeBlockRegex, (match) => {
-		let placeholder = `\u0000${index}\u0000`; // Use a unique placeholder
+		let placeholder = `{codeBlock${index}}`; // 使用更常见的占位符
 		codeBlocks[index++] = match;
 		return placeholder;
 	});
 
-	// Split the modified text into sentences based on common punctuation marks, avoiding these blocks
-	let sentences = text.split(/(?<=[.!?])\s+/);
+	// 根据常见的标点符号拆分修改后的文本为句子
+	let sentences = text.split(/([.!?])\s+/);
 
-	// Restore code blocks and process sentences
+	// 恢复代码块并处理句子
 	sentences = sentences.map((sentence) => {
-		// Check if the sentence includes a placeholder for a code block
-		return sentence.replace(/\u0000(\d+)\u0000/g, (_, idx) => codeBlocks[idx]);
+		// 检查句子是否包含代码块的占位符
+		return sentence.replace(/\{codeBlock(\d+)\}/g, (_, idx) => codeBlocks[idx]);
 	});
 
 	return sentences
 		.map((sentence) => removeFormattings(removeEmojis(sentence.trim())))
 		.filter((sentence) => sentence);
 };
+
 
 export const extractSentencesForAudio = (text) => {
 	return extractSentences(text).reduce((mergedTexts, currentText) => {
