@@ -1,6 +1,5 @@
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/kit/vite';
-import { babel } from '@rollup/plugin-babel';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -8,31 +7,14 @@ const config = {
 	// for more information about preprocessors
 	preprocess: vitePreprocess(),
 	kit: {
+		// adapter-auto only supports some environments, see https://kit.svelte.dev/docs/adapter-auto for a list.
+		// If your environment is not supported or you settled on a specific environment, switch out the adapter.
+		// See https://kit.svelte.dev/docs/adapters for more information about adapters.
 		adapter: adapter({
 			pages: 'build',
 			assets: 'build',
 			fallback: 'index.html'
-		}),
-		vite: {
-			plugins: [
-				babel({
-					extensions: ['.js', '.mjs', '.html', '.svelte', '.ts'],
-					babelHelpers: 'runtime',
-					exclude: ['node_modules/**'],
-					presets: [
-						[
-							'@babel/preset-env',
-							{
-								targets: '> 0.25%, not dead',
-								useBuiltIns: 'usage',
-								corejs: 3
-							}
-						]
-					],
-					plugins: ['@babel/plugin-transform-runtime']
-				})
-			]
-		}
+		})
 	},
 	onwarn: (warning, handler) => {
 		const { code, _ } = warning;
