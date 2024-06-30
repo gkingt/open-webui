@@ -20,6 +20,10 @@
 		"pyodide:fetch": "node scripts/prepare-pyodide.js"
 	},
 	"devDependencies": {
+		"@babel/core": "^7.24.7",
+		"@babel/plugin-transform-runtime": "^7.24.7",
+		"@babel/preset-env": "^7.24.7",
+		"@rollup/plugin-babel": "^6.0.4",
 		"@sveltejs/adapter-auto": "^2.0.0",
 		"@sveltejs/adapter-static": "^2.0.3",
 		"@sveltejs/kit": "^1.30.0",
@@ -28,6 +32,7 @@
 		"@typescript-eslint/eslint-plugin": "^6.17.0",
 		"@typescript-eslint/parser": "^6.17.0",
 		"autoprefixer": "^10.4.16",
+		"core-js": "^3.37.1",
 		"cypress": "^13.8.1",
 		"eslint": "^8.56.0",
 		"eslint-config-prettier": "^8.5.0",
@@ -48,6 +53,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@babel/runtime-corejs3": "^7.24.7",
 		"@codemirror/lang-javascript": "^6.2.2",
 		"@codemirror/lang-python": "^6.1.6",
 		"@codemirror/theme-one-dark": "^6.1.2",
