@@ -1269,7 +1269,14 @@
 			innerError = await res.json();
 		}
 		console.error(innerError);
+		console.log(res);
+		console.log(responseMessage);
 		if ('detail' in innerError) {
+			if (innerError.detail.includes('400')) {
+				innerError.detail = '当前会话上下文过长，请新开对话后重新尝试！'
+			}else if(innerError.detail.includes('503')){
+				innerError.detail = '当前模型不可用，请更换模型后重新尝试！'
+			}
 			toast.error(innerError.detail);
 			errorMessage = innerError.detail;
 		} else if ('error' in innerError) {
