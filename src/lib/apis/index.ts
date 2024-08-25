@@ -384,6 +384,42 @@ export const generateSearchQuery = async (
 	return res?.choices[0]?.message?.content.replace(/["']/g, '') ?? prompt;
 };
 
+export const generateMoACompletion = async (
+	token: string = '',
+	model: string,
+	prompt: string,
+	responses: string[]
+) => {
+	const controller = new AbortController();
+	let error = null;
+
+	const res = await fetch(`${WEBUI_BASE_URL}/api/task/moa/completions`, {
+		signal: controller.signal,
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			model: model,
+			prompt: prompt,
+			responses: responses,
+			stream: true
+		})
+	}).catch((err) => {
+		console.log(err);
+		error = err;
+		return null;
+	});
+
+	if (error) {
+		throw error;
+	}
+
+	return [res, controller];
+};
+
 export const getPipelinesList = async (token: string = '') => {
 	let error = null;
 
@@ -680,6 +716,7 @@ export const getBackendConfig = async () => {
 
 	const res = await fetch(`${WEBUI_BASE_URL}/api/config`, {
 		method: 'GET',
+		credentials: 'include',
 		headers: {
 			'Content-Type': 'application/json'
 		}
@@ -964,6 +1001,7 @@ export interface ModelConfig {
 export interface ModelMeta {
 	description?: string;
 	capabilities?: object;
+	profile_image_url?: string;
 }
 
 export interface ModelParams {}
