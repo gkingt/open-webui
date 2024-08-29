@@ -63,130 +63,6 @@ class EndpointFilter(logging.Filter):
 # Filter out /endpoint
 logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
-
-WEBUI_NAME = os.environ.get("WEBUI_NAME", "Open WebUI")
-# if WEBUI_NAME != "Open WebUI":
-#     WEBUI_NAME += " (Open WebUI)"
-
-WEBUI_URL = os.environ.get("WEBUI_URL", "http://localhost:3000")
-
-WEBUI_FAVICON_URL = "https://openwebui.com/favicon.png"
-
-
-####################################
-# ENV (dev,test,prod)
-####################################
-
-ENV = os.environ.get("ENV", "dev")
-
-try:
-    PACKAGE_DATA = json.loads((BASE_DIR / "package.json").read_text())
-except Exception:
-    try:
-        PACKAGE_DATA = {"version": importlib.metadata.version("open-webui")}
-    except importlib.metadata.PackageNotFoundError:
-        PACKAGE_DATA = {"version": "0.0.0"}
-
-VERSION = PACKAGE_DATA["version"]
-
-
-# Function to parse each section
-def parse_section(section):
-    items = []
-    for li in section.find_all("li"):
-        # Extract raw HTML string
-        raw_html = str(li)
-
-        # Extract text without HTML tags
-        text = li.get_text(separator=" ", strip=True)
-
-        # Split into title and content
-        parts = text.split(": ", 1)
-        title = parts[0].strip() if len(parts) > 1 else ""
-        content = parts[1].strip() if len(parts) > 1 else text
-
-        items.append({"title": title, "content": content, "raw": raw_html})
-    return items
-
-
-try:
-    changelog_path = BASE_DIR / "CHANGELOG.md"
-    with open(str(changelog_path.absolute()), "r", encoding="utf8") as file:
-        changelog_content = file.read()
-
-except Exception:
-    changelog_content = (pkgutil.get_data("open_webui", "CHANGELOG.md") or b"").decode()
-
-
-# Convert markdown content to HTML
-html_content = markdown.markdown(changelog_content)
-
-# Parse the HTML content
-soup = BeautifulSoup(html_content, "html.parser")
-
-# Initialize JSON structure
-changelog_json = {}
-
-# Iterate over each version
-for version in soup.find_all("h2"):
-    version_number = version.get_text().strip().split(" - ")[0][1:-1]  # Remove brackets
-    date = version.get_text().strip().split(" - ")[1]
-
-    version_data = {"date": date}
-
-    # Find the next sibling that is a h3 tag (section title)
-    current = version.find_next_sibling()
-
-    while current and current.name != "h2":
-        if current.name == "h3":
-            section_title = current.get_text().lower()  # e.g., "added", "fixed"
-            section_items = parse_section(current.find_next_sibling("ul"))
-            version_data[section_title] = section_items
-
-        # Move to the next element
-        current = current.find_next_sibling()
-
-    changelog_json[version_number] = version_data
-
-
-CHANGELOG = changelog_json
-
-####################################
-# SAFE_MODE
-####################################
-
-SAFE_MODE = os.environ.get("SAFE_MODE", "false").lower() == "true"
-
-####################################
-# WEBUI_BUILD_HASH
-####################################
-
-WEBUI_BUILD_HASH = os.environ.get("WEBUI_BUILD_HASH", "dev-build")
-
-####################################
-# DATA/FRONTEND BUILD DIR
-####################################
-
-DATA_DIR = Path(os.getenv("DATA_DIR", BACKEND_DIR / "data")).resolve()
-FRONTEND_BUILD_DIR = Path(os.getenv("FRONTEND_BUILD_DIR", BASE_DIR / "build")).resolve()
-
-RESET_CONFIG_ON_START = (
-    os.environ.get("RESET_CONFIG_ON_START", "False").lower() == "true"
-)
-if RESET_CONFIG_ON_START:
-    try:
-        os.remove(f"{DATA_DIR}/config.json")
-        with open(f"{DATA_DIR}/config.json", "w") as f:
-            f.write("{}")
-    except Exception:
-        pass
-
-try:
-    CONFIG_DATA = json.loads((DATA_DIR / "config.json").read_text())
-except Exception:
-    CONFIG_DATA = {}
-
-
 ####################################
 # Config helpers
 ####################################
@@ -847,40 +723,32 @@ DEFAULT_PROMPT_SUGGESTIONS = PersistentConfig(
     "ui.prompt_suggestions",
     [
         {
-				"title": [
-					"\u9c81\u8fc5\u6253\u5468\u6811\u4eba\uff1f",
-					"\u6709\u8fd9\u4e2a\u53ef\u80fd\uff1f"
-				],
-				"content": "\u9c81\u8fc5\u4e3a\u4ec0\u4e48\u66b4\u6253\u4e86\u5468\u6811\u4eba\uff1f"
-			},
-			{
-				"title": [
-					"\u94a2\u4e1d\u7403\u7092\u897f\u7ea2\u67ff\uff1f",
-					"\u6709\u8fd9\u79cd\u505a\u6cd5\u5417\uff1f"
-				],
-				"content": "\u94a2\u4e1d\u7403\u7092\u897f\u7ea2\u67ff\u600e\u4e48\u505a\uff1f"
-			},
-			{
-				"title": [
-					"\u6628\u5929\u7684\u660e\u5929\uff1f",
-					"\u80fd\u8bf4\u5bf9\uff1f"
-				],
-				"content": "\u6628\u5929\u7684\u660e\u5929\u662f\u4ec0\u4e48\u65f6\u5019\uff1f"
-			},
-			{
-				"title": [
-					"\u5c0f\u660e\u53c2\u52a0\u4e86\u4ed6\u7236\u6bcd\u7684\u5a5a\u793c\uff1f",
-					"\u771f\u80fd\u53c2\u52a0\uff1f"
-				],
-				"content": "\u5c0f\u660e\u53c2\u52a0\u4e86\u4ed6\u7236\u6bcd\u7684\u5a5a\u793c\uff1f"
-			},
-			{
-				"title": [
-					"\u5403\u82f9\u679c\uff1f",
-					"\u80fd\u5403\u660e\u767d\u5417\uff1f"
-				],
-				"content": "\u6628\u5929\u5403\u4e861\u4e2a\u82f9\u679c\uff0c\u4eca\u5929\u4e70\u4e86\u4e24\u4e2a\u82f9\u679c\uff0c\u90a3\u4e48\u73b0\u5728\u6709\u51e0\u4e2a\u82f9\u679c\uff1f"
-			}
+            "title": ["Help me study", "vocabulary for a college entrance exam"],
+            "content": "Help me study vocabulary: write a sentence for me to fill in the blank, and I'll try to pick the correct option.",
+        },
+        {
+            "title": ["Give me ideas", "for what to do with my kids' art"],
+            "content": "What are 5 creative things I could do with my kids' art? I don't want to throw them away, but it's also so much clutter.",
+        },
+        {
+            "title": ["Tell me a fun fact", "about the Roman Empire"],
+            "content": "Tell me a random fun fact about the Roman Empire",
+        },
+        {
+            "title": ["Show me a code snippet", "of a website's sticky header"],
+            "content": "Show me a code snippet of a website's sticky header in CSS and JavaScript.",
+        },
+        {
+            "title": [
+                "Explain options trading",
+                "if I'm familiar with buying and selling stocks",
+            ],
+            "content": "Explain options trading in simple terms if I'm familiar with buying and selling stocks.",
+        },
+        {
+            "title": ["Overcome procrastination", "give me tips"],
+            "content": "Could you start by asking me about instances when I procrastinate the most and then give me some suggestions to overcome it?",
+        },
     ],
 )
 
