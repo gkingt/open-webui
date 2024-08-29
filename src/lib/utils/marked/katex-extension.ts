@@ -1,14 +1,40 @@
 import katex from 'katex';
 
 const DELIMITER_LIST = [
-	{ left: '$$', right: '$$', display: false },
-	{ left: '$', right: '$', display: false },
-	{ left: '\\pu{', right: '}', display: false },
-	{ left: '\\ce{', right: '}', display: false },
 	{ left: '\\(', right: '\\)', display: false },
-	{ left: '( ', right: ' )', display: false },
 	{ left: '\\[', right: '\\]', display: true },
-	{ left: '[ ', right: ' ]', display: true }
+	{ left: '$$', right: '$$', display: true },
+	{ left: '$', right: '$', display: false },
+	{ left: '(', right: ')', display: false },
+	{ left: '{', right: '}', display: false },
+	{ left: '[', right: ']', display: true },
+	{ left: "\\begin{equation}", right: "\\end{equation}", display: true },
+	{ left: "\\begin{align}", right: "\\end{align}", display: true },
+	{ left: "\\begin{alignat}", right: "\\end{alignat}", display: true },
+	{ left: "\\begin{gather}", right: "\\end{gather}", display: true },
+	{ left: "\\begin{CD}", right: "\\end{CD}", display: true },
+	{ left: "\\begin{matrix}", right: "\\end{matrix}", display: true },
+	{ left: "\\begin{pmatrix}", right: "\\end{pmatrix}", display: true },
+	{ left: "\\begin{bmatrix}", right: "\\end{bmatrix}", display: true },
+	{ left: "\\begin{vmatrix}", right: "\\end{vmatrix}", display: true },
+	{ left: "\\begin{Bmatrix}", right: "\\end{Bmatrix}", display: true },
+	{ left: "\\begin{cases}", right: "\\end{cases}", display: true },
+	{ left: "\\begin{array}", right: "\\end{array}", display: true },
+	{ left: "\\begin{aligned}", right: "\\end{aligned}", display: true },
+	{ left: "\\begin{gathered}", right: "\\end{gathered}", display: true },
+	{ left: "\\begin{split}", right: "\\end{split}", display: true },
+	{ left: "\\begin{smallmatrix}", right: "\\end{smallmatrix}", display: false },
+	{ left: "\\begin{multline}", right: "\\end{multline}", display: true },
+	{ left: "\\langle", right: "\\rangle", display: false },
+	{ left: "\\lvert", right: "\\rvert", display: false },
+	{ left: "\\lVert", right: "\\rVert", display: false },
+	{ left: "\\text{", right: "}", display: false },
+	{ left: "\\mbox{", right: "}", display: false },
+	{ left: "\\begin{theorem}", right: "\\end{theorem}", display: true },
+	{ left: "\\begin{lemma}", right: "\\end{lemma}", display: true },
+	{ left: "\\begin{proof}", right: "\\end{proof}", display: true },
+	{ left: "\\begin{verbatim}", right: "\\end{verbatim}", display: true },
+	{ left: "\\begin{tabular}", right: "\\end{tabular}", display: true }
 ];
 
 // const DELIMITER_LIST = [
