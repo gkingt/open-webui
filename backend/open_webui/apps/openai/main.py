@@ -380,13 +380,6 @@ async def generate_chat_completion(
     idx = 0
     payload = {**form_data}
 
-    # 处理 payload 的 messages 属性
-    if "messages" in payload and isinstance(payload["messages"], list):
-        first_message = payload["messages"][0] if payload["messages"] else None
-        if first_message and first_message.get("role") == "system":
-            # 修改 content 属性，拼接附加的内容
-            first_message["content"] += "\n**Use LaTeX for Math When Applicable** - Apply only for math-related queries, Inline: `$equation$`, Display: `$$equation$$`"
-
     if "metadata" in payload:
         del payload["metadata"]
 
