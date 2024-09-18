@@ -4,9 +4,9 @@ import json
 import logging
 from pathlib import Path
 from typing import Literal, Optional, overload
-
+from fastapi.responses import StreamingResponse
 import aiohttp
-import requests
+import aiofiles
 from open_webui.apps.webui.models.models import Models
 from open_webui.config import (
     AIOHTTP_CLIENT_TIMEOUT,
@@ -27,7 +27,6 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-
 from open_webui.utils.payload import (
     apply_model_params_to_body_openai,
     apply_model_system_prompt_to_body,
@@ -47,7 +46,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 app.state.config = AppConfig()
 
 app.state.config.ENABLE_MODEL_FILTER = ENABLE_MODEL_FILTER
@@ -58,62 +56,57 @@ app.state.config.OPENAI_API_BASE_URLS = OPENAI_API_BASE_URLS
 app.state.config.OPENAI_API_KEYS = OPENAI_API_KEYS
 
 app.state.MODELS = {}
+app.state.MODEL_CACHE = {}
+app.state.MODEL_CACHE_TIME = 0
 
+async def preload_models():
+    await get_all_models()
+
+@app.on_event("startup")
+async def startup_event():
+    await preload_models()
 
 @app.middleware("http")
 async def check_url(request: Request, call_next):
-    if len(app.state.MODELS) == 0:
-        await get_all_models()
-
     response = await call_next(request)
     return response
-
 
 @app.get("/config")
 async def get_config(user=Depends(get_admin_user)):
     return {"ENABLE_OPENAI_API": app.state.config.ENABLE_OPENAI_API}
 
-
 class OpenAIConfigForm(BaseModel):
     enable_openai_api: Optional[bool] = None
-
 
 @app.post("/config/update")
 async def update_config(form_data: OpenAIConfigForm, user=Depends(get_admin_user)):
     app.state.config.ENABLE_OPENAI_API = form_data.enable_openai_api
     return {"ENABLE_OPENAI_API": app.state.config.ENABLE_OPENAI_API}
 
-
 class UrlsUpdateForm(BaseModel):
     urls: list[str]
 
-
 class KeysUpdateForm(BaseModel):
     keys: list[str]
-
 
 @app.get("/urls")
 async def get_openai_urls(user=Depends(get_admin_user)):
     return {"OPENAI_API_BASE_URLS": app.state.config.OPENAI_API_BASE_URLS}
 
-
 @app.post("/urls/update")
 async def update_openai_urls(form_data: UrlsUpdateForm, user=Depends(get_admin_user)):
-    await get_all_models()
     app.state.config.OPENAI_API_BASE_URLS = form_data.urls
+    await preload_models()
     return {"OPENAI_API_BASE_URLS": app.state.config.OPENAI_API_BASE_URLS}
-
 
 @app.get("/keys")
 async def get_openai_keys(user=Depends(get_admin_user)):
     return {"OPENAI_API_KEYS": app.state.config.OPENAI_API_KEYS}
 
-
 @app.post("/keys/update")
 async def update_openai_key(form_data: KeysUpdateForm, user=Depends(get_admin_user)):
     app.state.config.OPENAI_API_KEYS = form_data.keys
     return {"OPENAI_API_KEYS": app.state.config.OPENAI_API_KEYS}
-
 
 @app.post("/audio/speech")
 async def speech(request: Request, user=Depends(get_verified_user)):
@@ -128,56 +121,36 @@ async def speech(request: Request, user=Depends(get_verified_user)):
         file_path = SPEECH_CACHE_DIR.joinpath(f"{name}.mp3")
         file_body_path = SPEECH_CACHE_DIR.joinpath(f"{name}.json")
 
-        # Check if the file already exists in the cache
         if file_path.is_file():
             return FileResponse(file_path)
 
-        headers = {}
-        headers["Authorization"] = f"Bearer {app.state.config.OPENAI_API_KEYS[idx]}"
-        headers["Content-Type"] = "application/json"
+        headers = {
+            "Authorization": f"Bearer {app.state.config.OPENAI_API_KEYS[idx]}",
+            "Content-Type": "application/json",
+        }
         if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
             headers["HTTP-Referer"] = "https://openwebui.com/"
             headers["X-Title"] = "Open WebUI"
-        r = None
-        try:
-            r = requests.post(
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
                 url=f"{app.state.config.OPENAI_API_BASE_URLS[idx]}/audio/speech",
                 data=body,
                 headers=headers,
-                stream=True,
-            )
+            ) as r:
+                r.raise_for_status()
+                async with aiofiles.open(file_path, mode='wb') as f:
+                    async for chunk in r.content.iter_chunked(8192):
+                        await f.write(chunk)
 
-            r.raise_for_status()
+        async with aiofiles.open(file_body_path, mode='w') as f:
+            await f.write(json.dumps(json.loads(body.decode("utf-8"))))
 
-            # Save the streaming content to a file
-            with open(file_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+        return FileResponse(file_path)
 
-            with open(file_body_path, "w") as f:
-                json.dump(json.loads(body.decode("utf-8")), f)
-
-            # Return the saved file
-            return FileResponse(file_path)
-
-        except Exception as e:
-            log.exception(e)
-            error_detail = "ChatK: Server Connection Error"
-            if r is not None:
-                try:
-                    res = r.json()
-                    if "error" in res:
-                        error_detail = f"External: {res['error']}"
-                except Exception:
-                    error_detail = f"External: {e}"
-
-            raise HTTPException(
-                status_code=r.status_code if r else 500, detail=error_detail
-            )
-
-    except ValueError:
-        raise HTTPException(status_code=401, detail=ERROR_MESSAGES.OPENAI_NOT_FOUND)
-
+    except Exception as e:
+        log.error(f"Error in speech function: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 async def fetch_url(url, key):
     timeout = aiohttp.ClientTimeout(total=5)
@@ -187,25 +160,20 @@ async def fetch_url(url, key):
             async with session.get(url, headers=headers) as response:
                 return await response.json()
     except Exception as e:
-        # Handle connection error here
         log.error(f"Connection error: {e}")
         return None
-
 
 async def cleanup_response(
     response: Optional[aiohttp.ClientResponse],
     session: Optional[aiohttp.ClientSession],
 ):
     if response:
-        response.close()
+        await response.release()
     if session:
         await session.close()
 
-
 def merge_models_lists(model_lists):
-    log.debug(f"merge_models_lists {model_lists}")
     merged_list = []
-
     for idx, models in enumerate(model_lists):
         if models is not None and "error" not in models:
             merged_list.extend(
@@ -233,30 +201,23 @@ def merge_models_lists(model_lists):
                     )
                 ]
             )
-
     return merged_list
-
 
 def is_openai_api_disabled():
     api_keys = app.state.config.OPENAI_API_KEYS
     no_keys = len(api_keys) == 1 and api_keys[0] == ""
     return no_keys or not app.state.config.ENABLE_OPENAI_API
 
-
 async def get_all_models_raw() -> list:
     if is_openai_api_disabled():
         return []
 
-    # Check if API KEYS length is same than API URLS length
     num_urls = len(app.state.config.OPENAI_API_BASE_URLS)
     num_keys = len(app.state.config.OPENAI_API_KEYS)
 
     if num_keys != num_urls:
-        # if there are more keys than urls, remove the extra keys
         if num_keys > num_urls:
-            new_keys = app.state.config.OPENAI_API_KEYS[:num_urls]
-            app.state.config.OPENAI_API_KEYS = new_keys
-        # if there are more urls than keys, add empty keys
+            app.state.config.OPENAI_API_KEYS = app.state.config.OPENAI_API_KEYS[:num_urls]
         else:
             app.state.config.OPENAI_API_KEYS += [""] * (num_urls - num_keys)
 
@@ -266,26 +227,26 @@ async def get_all_models_raw() -> list:
     ]
 
     responses = await asyncio.gather(*tasks)
-    log.debug(f"get_all_models:responses() {responses}")
-
     return responses
-
 
 @overload
 async def get_all_models(raw: Literal[True]) -> list: ...
 
-
 @overload
 async def get_all_models(raw: Literal[False] = False) -> dict[str, list]: ...
 
-
 async def get_all_models(raw=False) -> dict[str, list] | list:
-    log.info("get_all_models()")
     if is_openai_api_disabled():
         return [] if raw else {"data": []}
 
+    current_time = asyncio.get_event_loop().time()
+    if current_time - app.state.MODEL_CACHE_TIME < 300:  # 5 minutes cache
+        return app.state.MODEL_CACHE if raw else {"data": app.state.MODEL_CACHE}
+
     responses = await get_all_models_raw()
     if raw:
+        app.state.MODEL_CACHE = responses
+        app.state.MODEL_CACHE_TIME = current_time
         return responses
 
     def extract_data(response):
@@ -296,79 +257,40 @@ async def get_all_models(raw=False) -> dict[str, list] | list:
         return None
 
     models = {"data": merge_models_lists(map(extract_data, responses))}
-
-    log.debug(f"models: {models}")
     app.state.MODELS = {model["id"]: model for model in models["data"]}
+    app.state.MODEL_CACHE = models["data"]
+    app.state.MODEL_CACHE_TIME = current_time
 
     return models
-
 
 @app.get("/models")
 @app.get("/models/{url_idx}")
 async def get_models(url_idx: Optional[int] = None, user=Depends(get_verified_user)):
     if url_idx is None:
         models = await get_all_models()
-        if app.state.config.ENABLE_MODEL_FILTER:
-            if user.role == "user":
-                models["data"] = list(
-                    filter(
-                        lambda model: model["id"] in app.state.config.MODEL_FILTER_LIST,
-                        models["data"],
-                    )
-                )
-                return models
+        if app.state.config.ENABLE_MODEL_FILTER and user.role == "user":
+            models["data"] = [model for model in models["data"] if model["id"] in app.state.config.MODEL_FILTER_LIST]
         return models
-    else:
-        url = app.state.config.OPENAI_API_BASE_URLS[url_idx]
-        key = app.state.config.OPENAI_API_KEYS[url_idx]
 
-        headers = {}
-        headers["Authorization"] = f"Bearer {key}"
-        headers["Content-Type"] = "application/json"
+    url = app.state.config.OPENAI_API_BASE_URLS[url_idx]
+    key = app.state.config.OPENAI_API_KEYS[url_idx]
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    }
 
-        r = None
-
-        try:
-            r = requests.request(method="GET", url=f"{url}/models", headers=headers)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{url}/models", headers=headers) as r:
             r.raise_for_status()
-
-            response_data = r.json()
+            response_data = await r.json()
 
             if "api.openai.com" in url:
-                # Filter the response data
                 response_data["data"] = [
-                    model
-                    for model in response_data["data"]
-                    if not any(
-                        name in model["id"]
-                        for name in [
-                            "babbage",
-                            "dall-e",
-                            "davinci",
-                            "embedding",
-                            "tts",
-                            "whisper",
-                        ]
-                    )
+                    model for model in response_data["data"]
+                    if not any(name in model["id"] for name in ["babbage", "dall-e", "davinci", "embedding", "tts", "whisper"])
                 ]
 
             return response_data
-        except Exception as e:
-            log.exception(e)
-            error_detail = "ChatK: Server Connection Error"
-            if r is not None:
-                try:
-                    res = r.json()
-                    if "error" in res:
-                        error_detail = f"External: {res['error']}"
-                except Exception:
-                    error_detail = f"External: {e}"
-
-            raise HTTPException(
-                status_code=r.status_code if r else 500,
-                detail=error_detail,
-            )
-
 
 @app.post("/chat/completions")
 @app.post("/chat/completions/{url_idx}")
@@ -377,9 +299,7 @@ async def generate_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
-    idx = 0
     payload = {**form_data}
-
     if "metadata" in payload:
         del payload["metadata"]
 
@@ -389,7 +309,6 @@ async def generate_chat_completion(
     if model_info:
         if model_info.base_model_id:
             payload["model"] = model_info.base_model_id
-
         params = model_info.params.model_dump()
         payload = apply_model_params_to_body_openai(params, payload)
         payload = apply_model_system_prompt_to_body(params, payload, user)
@@ -405,129 +324,57 @@ async def generate_chat_completion(
             "role": user.role,
         }
 
-    # Convert the modified body back to JSON
     payload = json.dumps(payload)
-
-    log.debug(payload)
 
     url = app.state.config.OPENAI_API_BASE_URLS[idx]
     key = app.state.config.OPENAI_API_KEYS[idx]
 
-    headers = {}
-    headers["Authorization"] = f"Bearer {key}"
-    headers["Content-Type"] = "application/json"
-    if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    }
+    if "openrouter.ai" in url:
         headers["HTTP-Referer"] = "https://openwebui.com/"
         headers["X-Title"] = "Open WebUI"
 
-    r = None
-    session = None
-    streaming = False
+    async def event_stream():
+        async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)) as session:
+            async with session.post(f"{url}/chat/completions", data=payload, headers=headers) as r:
+                r.raise_for_status()
+                async for chunk in r.content.iter_any():
+                    if chunk:
+                        yield chunk
 
-    try:
-        session = aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
-        )
-        r = await session.request(
-            method="POST",
-            url=f"{url}/chat/completions",
-            data=payload,
-            headers=headers,
-        )
-
-        r.raise_for_status()
-
-        # Check if response is SSE
-        if "text/event-stream" in r.headers.get("Content-Type", ""):
-            streaming = True
-            return StreamingResponse(
-                r.content,
-                status_code=r.status,
-                headers=dict(r.headers),
-                background=BackgroundTask(
-                    cleanup_response, response=r, session=session
-                ),
-            )
-        else:
-            response_data = await r.json()
-            return response_data
-    except Exception as e:
-        log.exception(e)
-        error_detail = "ChatK: Server Connection Error"
-        if r is not None:
-            try:
-                res = await r.json()
-                print(res)
-                if "error" in res:
-                    error_detail = f"External: {res['error']['message'] if 'message' in res['error'] else res['error']}"
-            except Exception:
-                error_detail = f"External: {e}"
-        raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
-    finally:
-        if not streaming and session:
-            if r:
-                r.close()
-            await session.close()
-
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     idx = 0
-
     body = await request.body()
-
     url = app.state.config.OPENAI_API_BASE_URLS[idx]
     key = app.state.config.OPENAI_API_KEYS[idx]
-
     target_url = f"{url}/{path}"
 
-    headers = {}
-    headers["Authorization"] = f"Bearer {key}"
-    headers["Content-Type"] = "application/json"
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    }
 
-    r = None
-    session = None
-    streaming = False
-
-    try:
-        session = aiohttp.ClientSession(trust_env=True)
-        r = await session.request(
+    async with aiohttp.ClientSession(trust_env=True) as session:
+        async with session.request(
             method=request.method,
             url=target_url,
             data=body,
             headers=headers,
-        )
+        ) as r:
+            r.raise_for_status()
 
-        r.raise_for_status()
-
-        # Check if response is SSE
-        if "text/event-stream" in r.headers.get("Content-Type", ""):
-            streaming = True
-            return StreamingResponse(
-                r.content,
-                status_code=r.status,
-                headers=dict(r.headers),
-                background=BackgroundTask(
-                    cleanup_response, response=r, session=session
-                ),
-            )
-        else:
-            response_data = await r.json()
-            return response_data
-    except Exception as e:
-        log.exception(e)
-        error_detail = "ChatK: Server Connection Error"
-        if r is not None:
-            try:
-                res = await r.json()
-                print(res)
-                if "error" in res:
-                    error_detail = f"External: {res['error']['message'] if 'message' in res['error'] else res['error']}"
-            except Exception:
-                error_detail = f"External: {e}"
-        raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
-    finally:
-        if not streaming and session:
-            if r:
-                r.close()
-            await session.close()
+            if "text/event-stream" in r.headers.get("Content-Type", ""):
+                return StreamingResponse(
+                    r.content,
+                    status_code=r.status,
+                    headers=dict(r.headers),
+                    background=BackgroundTask(cleanup_response, response=r, session=session),
+                )
+            else:
+                return await r.json()
