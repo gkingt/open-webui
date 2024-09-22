@@ -130,7 +130,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
         }
         if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
             headers["HTTP-Referer"] = "https://openwebui.com/"
-            headers["X-Title"] = "Open WebUI"
+            headers["X-Title"] = "ChatK"
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -299,7 +299,9 @@ async def generate_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
+    idx = 0
     payload = {**form_data}
+
     if "metadata" in payload:
         del payload["metadata"]
 
@@ -309,6 +311,7 @@ async def generate_chat_completion(
     if model_info:
         if model_info.base_model_id:
             payload["model"] = model_info.base_model_id
+
         params = model_info.params.model_dump()
         payload = apply_model_params_to_body_openai(params, payload)
         payload = apply_model_system_prompt_to_body(params, payload, user)
@@ -324,29 +327,82 @@ async def generate_chat_completion(
             "role": user.role,
         }
 
-    payload = json.dumps(payload)
-
     url = app.state.config.OPENAI_API_BASE_URLS[idx]
     key = app.state.config.OPENAI_API_KEYS[idx]
 
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
-    }
-    if "openrouter.ai" in url:
+    # Change max_completion_tokens to max_tokens (Backward compatible)
+    if "api.openai.com" not in url and not payload["model"].lower().startswith("o1-"):
+        if "max_completion_tokens" in payload:
+            # Remove "max_completion_tokens" from the payload
+            payload["max_tokens"] = payload["max_completion_tokens"]
+            del payload["max_completion_tokens"]
+    else:
+        if "max_tokens" in payload and "max_completion_tokens" in payload:
+            del payload["max_tokens"]
+
+    # Convert the modified body back to JSON
+    payload = json.dumps(payload)
+
+    log.debug(payload)
+
+    headers = {}
+    headers["Authorization"] = f"Bearer {key}"
+    headers["Content-Type"] = "application/json"
+    if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
         headers["HTTP-Referer"] = "https://openwebui.com/"
-        headers["X-Title"] = "Open WebUI"
+        headers["X-Title"] = "ChatK"
 
-    async def event_stream():
-        async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)) as session:
-            async with session.post(f"{url}/chat/completions", data=payload, headers=headers) as r:
-                r.raise_for_status()
-                async for chunk in r.content.iter_any():
-                    if chunk:
-                        yield chunk
+    r = None
+    session = None
+    streaming = False
+    response = None
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    try:
+        session = aiohttp.ClientSession(
+            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+        )
+        r = await session.request(
+            method="POST",
+            url=f"{url}/chat/completions",
+            data=payload,
+            headers=headers,
+        )
 
+        # Check if response is SSE
+        if "text/event-stream" in r.headers.get("Content-Type", ""):
+            streaming = True
+            return StreamingResponse(
+                r.content,
+                status_code=r.status,
+                headers=dict(r.headers),
+                background=BackgroundTask(
+                    cleanup_response, response=r, session=session
+                ),
+            )
+        else:
+            try:
+                response = await r.json()
+            except Exception as e:
+                log.error(e)
+                response = await r.text()
+
+            r.raise_for_status()
+            return response
+    except Exception as e:
+        log.exception(e)
+        error_detail = "ChatK: Server Connection Error"
+        if isinstance(response, dict):
+            if "error" in response:
+                error_detail = f"{response['error']['message'] if 'message' in response['error'] else response['error']}"
+        elif isinstance(response, str):
+            error_detail = response
+
+        raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
+    finally:
+        if not streaming and session:
+            if r:
+                r.close()
+            await session.close()
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     idx = 0
