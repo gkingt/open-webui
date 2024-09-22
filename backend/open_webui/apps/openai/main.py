@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 import aiohttp
 import aiofiles
 from open_webui.apps.webui.models.models import Models
+from fastapi import HTTPException, BackgroundTasks, Depends
 from open_webui.config import (
     AIOHTTP_CLIENT_TIMEOUT,
     CACHE_DIR,
@@ -292,6 +293,13 @@ async def get_models(url_idx: Optional[int] = None, user=Depends(get_verified_us
 
             return response_data
 
+async def get_session():
+    if not hasattr(app.state, "client_session"):
+        app.state.client_session = aiohttp.ClientSession(
+            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+        )
+    return app.state.client_session
+
 @app.post("/chat/completions")
 @app.post("/chat/completions/{url_idx}")
 async def generate_chat_completion(
@@ -333,75 +341,64 @@ async def generate_chat_completion(
     # Change max_completion_tokens to max_tokens (Backward compatible)
     if "api.openai.com" not in url and not payload["model"].lower().startswith("o1-"):
         if "max_completion_tokens" in payload:
-            # Remove "max_completion_tokens" from the payload
             payload["max_tokens"] = payload["max_completion_tokens"]
             del payload["max_completion_tokens"]
     else:
         if "max_tokens" in payload and "max_completion_tokens" in payload:
             del payload["max_tokens"]
 
-    # Convert the modified body back to JSON
+    # Convert the modified body back to JSON once, not repeatedly
     payload = json.dumps(payload)
 
     log.debug(payload)
 
-    headers = {}
-    headers["Authorization"] = f"Bearer {key}"
-    headers["Content-Type"] = "application/json"
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    }
+
     if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
         headers["HTTP-Referer"] = "https://openwebui.com/"
         headers["X-Title"] = "ChatK"
 
-    r = None
-    session = None
+    session = await get_session()
     streaming = False
     response = None
 
     try:
-        session = aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
-        )
-        r = await session.request(
-            method="POST",
-            url=f"{url}/chat/completions",
-            data=payload,
-            headers=headers,
-        )
+        # 并发请求或其他任务可以使用 asyncio.gather 优化
+        async with session.post(url=f"{url}/chat/completions", data=payload, headers=headers) as r:
+            # Check if response is SSE
+            if "text/event-stream" in r.headers.get("Content-Type", ""):
+                streaming = True
+                return StreamingResponse(
+                    r.content,
+                    status_code=r.status,
+                    headers=dict(r.headers),
+                    background=BackgroundTask(
+                        cleanup_response, response=r, session=session
+                    ),
+                )
+            else:
+                try:
+                    response = await r.json()
+                except json.JSONDecodeError:
+                    log.error("Failed to decode JSON response")
+                    response = await r.text()
 
-        # Check if response is SSE
-        if "text/event-stream" in r.headers.get("Content-Type", ""):
-            streaming = True
-            return StreamingResponse(
-                r.content,
-                status_code=r.status,
-                headers=dict(r.headers),
-                background=BackgroundTask(
-                    cleanup_response, response=r, session=session
-                ),
-            )
-        else:
-            try:
-                response = await r.json()
-            except Exception as e:
-                log.error(e)
-                response = await r.text()
-
-            r.raise_for_status()
-            return response
+                r.raise_for_status()
+                return response
     except Exception as e:
         log.exception(e)
         error_detail = "ChatK: Server Connection Error"
-        if isinstance(response, dict):
-            if "error" in response:
-                error_detail = f"{response['error']['message'] if 'message' in response['error'] else response['error']}"
+        if isinstance(response, dict) and "error" in response:
+            error_detail = f"{response['error'].get('message', response['error'])}"
         elif isinstance(response, str):
             error_detail = response
 
         raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
     finally:
-        if not streaming and session:
-            if r:
-                r.close()
+        if not streaming:
             await session.close()
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
