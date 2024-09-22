@@ -293,12 +293,6 @@ async def get_models(url_idx: Optional[int] = None, user=Depends(get_verified_us
 
             return response_data
 
-async def get_session():
-    if not hasattr(app.state, "client_session"):
-        app.state.client_session = aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
-        )
-    return app.state.client_session
 
 @app.post("/chat/completions")
 @app.post("/chat/completions/{url_idx}")
@@ -307,23 +301,23 @@ async def generate_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
-    idx = 0
+    # 复制并调整请求数据
     payload = {**form_data}
-
     if "metadata" in payload:
         del payload["metadata"]
 
+    # 获取模型信息并应用相应的参数
     model_id = form_data.get("model")
     model_info = Models.get_model_by_id(model_id)
 
     if model_info:
         if model_info.base_model_id:
             payload["model"] = model_info.base_model_id
-
         params = model_info.params.model_dump()
         payload = apply_model_params_to_body_openai(params, payload)
         payload = apply_model_system_prompt_to_body(params, payload, user)
 
+    # 获取模型和API地址
     model = app.state.MODELS[payload.get("model")]
     idx = model["urlIdx"]
 
@@ -335,71 +329,39 @@ async def generate_chat_completion(
             "role": user.role,
         }
 
+    # 转换为JSON格式
+    payload = json.dumps(payload)
+
+    # 获取API地址和密钥
     url = app.state.config.OPENAI_API_BASE_URLS[idx]
     key = app.state.config.OPENAI_API_KEYS[idx]
 
-    # Change max_completion_tokens to max_tokens (Backward compatible)
-    if "api.openai.com" not in url and not payload["model"].lower().startswith("o1-"):
-        if "max_completion_tokens" in payload:
-            payload["max_tokens"] = payload["max_completion_tokens"]
-            del payload["max_completion_tokens"]
-    else:
-        if "max_tokens" in payload and "max_completion_tokens" in payload:
-            del payload["max_tokens"]
-
-    # Convert the modified body back to JSON once, not repeatedly
-    payload = json.dumps(payload)
-
-    log.debug(payload)
-
+    # 请求头设置
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json"
     }
-
-    if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
+    if "openrouter.ai" in url:
         headers["HTTP-Referer"] = "https://openwebui.com/"
         headers["X-Title"] = "ChatK"
 
-    session = await get_session()
-    streaming = False
-    response = None
+    # 定义流式传输的生成器
+    async def event_stream():
+        try:
+            async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)) as session:
+                async with session.post(f"{url}/chat/completions", data=payload, headers=headers) as r:
+                    r.raise_for_status()
+                    # 每次读取指定大小的块并发送到前端
+                    async for chunk in r.content.iter_chunked(1024):  # 每次传输1KB
+                        if chunk:
+                            yield chunk
+        except aiohttp.ClientError as e:
+            raise HTTPException(status_code=500, detail=f"Request to external API failed: {str(e)}")
 
-    try:
-        # 并发请求或其他任务可以使用 asyncio.gather 优化
-        async with session.post(url=f"{url}/chat/completions", data=payload, headers=headers) as r:
-            # Check if response is SSE
-            if "text/event-stream" in r.headers.get("Content-Type", ""):
-                streaming = True
-                return StreamingResponse(
-                    r.content,
-                    status_code=r.status,
-                    headers=dict(r.headers),
-                    background=BackgroundTask(
-                        cleanup_response, response=r, session=session
-                    ),
-                )
-            else:
-                try:
-                    response = await r.json()
-                except json.JSONDecodeError:
-                    log.error("Failed to decode JSON response")
-                    response = await r.text()
-
-                r.raise_for_status()
-                return response
-    except Exception as e:
-        log.exception(e)
-        error_detail = "ChatK: Server Connection Error"
-        if isinstance(response, dict) and "error" in response:
-            error_detail = f"{response['error'].get('message', response['error'])}"
-        elif isinstance(response, str):
-            error_detail = response
-
-        raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
-    finally:
-        if not streaming:
-            await session.close()
+    # 使用StreamingResponse返回流式响应
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+            
+            
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     idx = 0
