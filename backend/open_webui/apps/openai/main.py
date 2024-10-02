@@ -301,12 +301,12 @@ async def generate_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
-    # å¤åˆ¶å¹¶è°ƒæ•´è¯·æ±‚æ•°æ®
+    # ¸´ÖÆ²¢µ÷ÕûÇëÇóÊı¾İ
     payload = {**form_data}
     if "metadata" in payload:
         del payload["metadata"]
 
-    # è·å–æ¨¡å‹ä¿¡æ¯å¹¶åº”ç”¨ç›¸åº”çš„å‚æ•°
+    # »ñÈ¡Ä£ĞÍĞÅÏ¢²¢Ó¦ÓÃÏàÓ¦µÄ²ÎÊı
     model_id = form_data.get("model")
     model_info = Models.get_model_by_id(model_id)
 
@@ -317,7 +317,7 @@ async def generate_chat_completion(
         payload = apply_model_params_to_body_openai(params, payload)
         payload = apply_model_system_prompt_to_body(params, payload, user)
 
-    # è·å–æ¨¡å‹å’ŒAPIåœ°å€
+    # »ñÈ¡Ä£ĞÍºÍAPIµØÖ·
     model = app.state.MODELS[payload.get("model")]
     idx = model["urlIdx"]
 
@@ -329,36 +329,52 @@ async def generate_chat_completion(
             "role": user.role,
         }
 
-    # è½¬æ¢ä¸ºJSONæ ¼å¼
+    # ×ª»»ÎªJSON¸ñÊ½
     payload = json.dumps(payload)
 
-    # è·å–APIåœ°å€å’Œå¯†é’¥
+    # »ñÈ¡APIµØÖ·ºÍÃÜÔ¿
     url = app.state.config.OPENAI_API_BASE_URLS[idx]
     key = app.state.config.OPENAI_API_KEYS[idx]
 
-    # è¯·æ±‚å¤´è®¾ç½®
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
-    }
-    if "openrouter.ai" in url:
+    # Change max_completion_tokens to max_tokens (Backward compatible)
+    if "api.openai.com" not in url and not payload["model"].lower().startswith("o1-"):
+        if "max_completion_tokens" in payload:
+            # Remove "max_completion_tokens" from the payload
+            payload["max_tokens"] = payload["max_completion_tokens"]
+            del payload["max_completion_tokens"]
+    else:
+        if payload["model"].lower().startswith("o1-") and "max_tokens" in payload:
+            payload["max_completion_tokens"] = payload["max_tokens"]
+            del payload["max_tokens"]
+        if "max_tokens" in payload and "max_completion_tokens" in payload:
+            del payload["max_tokens"]
+
+    # Convert the modified body back to JSON
+    payload = json.dumps(payload)
+
+    log.debug(payload)
+
+    headers = {}
+    headers["Authorization"] = f"Bearer {key}"
+    headers["Content-Type"] = "application/json"
+    if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
         headers["HTTP-Referer"] = "https://openwebui.com/"
         headers["X-Title"] = "ChatK"
 
-    # å®šä¹‰æµå¼ä¼ è¾“çš„ç”Ÿæˆå™¨
+    # ¶¨ÒåÁ÷Ê½´«ÊäµÄÉú³ÉÆ÷
     async def event_stream():
         try:
             async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)) as session:
                 async with session.post(f"{url}/chat/completions", data=payload, headers=headers) as r:
                     r.raise_for_status()
-                    # æ¯æ¬¡è¯»å–æŒ‡å®šå¤§å°çš„å—å¹¶å‘é€åˆ°å‰ç«¯
-                    async for chunk in r.content.iter_chunked(1024):  # æ¯æ¬¡ä¼ è¾“1KB
+                    # Ã¿´Î¶ÁÈ¡Ö¸¶¨´óĞ¡µÄ¿é²¢·¢ËÍµ½Ç°¶Ë
+                    async for chunk in r.content.iter_chunked(1024):  # Ã¿´Î´«Êä1KB
                         if chunk:
                             yield chunk
         except aiohttp.ClientError as e:
             raise HTTPException(status_code=500, detail=f"Request to external API failed: {str(e)}")
 
-    # ä½¿ç”¨StreamingResponseè¿”å›æµå¼å“åº”
+    # Ê¹ÓÃStreamingResponse·µ»ØÁ÷Ê½ÏìÓ¦
     return StreamingResponse(event_stream(), media_type="text/event-stream")
             
             
