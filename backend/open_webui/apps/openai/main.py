@@ -301,33 +301,26 @@ async def generate_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
-    # 确保 form_data 是字典类型
-    assert isinstance(form_data, dict), f"form_data should be a dict, but got {type(form_data)}"
-
+    idx = 0
     payload = {**form_data}
+
     if "metadata" in payload:
         del payload["metadata"]
 
     model_id = form_data.get("model")
     model_info = Models.get_model_by_id(model_id)
-    
+
     if model_info:
         if model_info.base_model_id:
             payload["model"] = model_info.base_model_id
+
         params = model_info.params.model_dump()
-        assert isinstance(params, dict), f"params should be a dict, but got {type(params)}"
-        
         payload = apply_model_params_to_body_openai(params, payload)
-        assert isinstance(payload, dict), f"payload should be a dict after apply_model_params_to_body_openai, but got {type(payload)}"
-        
         payload = apply_model_system_prompt_to_body(params, payload, user)
-        assert isinstance(payload, dict), f"payload should be a dict after apply_model_system_prompt_to_body, but got {type(payload)}"
 
     model = app.state.MODELS[payload.get("model")]
-    assert isinstance(model, dict), f"model should be a dict, but got {type(model)}"
-    
     idx = model["urlIdx"]
-    
+
     if "pipeline" in model and model.get("pipeline"):
         payload["user"] = {
             "name": user.name,
@@ -336,36 +329,98 @@ async def generate_chat_completion(
             "role": user.role,
         }
 
-    # Ensure dictionary operations before serialization
-    if "max_completion_tokens" in payload:
-        payload["max_tokens"] = payload["max_completion_tokens"]
-        del payload["max_completion_tokens"]
+    # 检查并修正 temperature 参数
+    if payload["model"].lower().startswith("o1-"):
+        if "temperature" in payload and payload["temperature"] != 1:
+            # 如果模型只支持默认值 1，则强制设置为 1
+            payload["temperature"] = 1
+         # 检查并删除 messages[0].role 参数为 "system" 的消息
+        if "messages" in payload and len(payload["messages"]) > 0:
+            if payload["messages"][0].get("role") == "system":
+                # 如果模型不支持 role = "system"，直接删除该消息
+                del payload["messages"][0]
+       
+
     url = app.state.config.OPENAI_API_BASE_URLS[idx]
     key = app.state.config.OPENAI_API_KEYS[idx]
-    # 最后才进行 JSON 序列化
+
+    # Change max_completion_tokens to max_tokens (Backward compatible)
+    if "api.openai.com" not in url and not payload["model"].lower().startswith("o1-"):
+        if "max_completion_tokens" in payload:
+            # Remove "max_completion_tokens" from the payload
+            payload["max_tokens"] = payload["max_completion_tokens"]
+            del payload["max_completion_tokens"]
+    else:
+        if payload["model"].lower().startswith("o1-") and "max_tokens" in payload:
+            payload["max_completion_tokens"] = payload["max_tokens"]
+            del payload["max_tokens"]
+        if "max_tokens" in payload and "max_completion_tokens" in payload:
+            del payload["max_tokens"]
+
+    # Convert the modified body back to JSON
     payload = json.dumps(payload)
-    log.debug(f"Final payload: {payload}")
 
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
-    }
+    log.debug(payload)
 
-    # Async request with aiohttp
-    async def event_stream():
-        try:
-            async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)) as session:
-                async with session.post(f"{url}/chat/completions", data=payload, headers=headers) as r:
-                    r.raise_for_status()
-                    async for chunk in r.content.iter_chunked(1024):
-                        if chunk:
-                            yield chunk
-        except aiohttp.ClientError as e:
-            raise HTTPException(status_code=500, detail=f"Request to external API failed: {str(e)}")
+    headers = {}
+    headers["Authorization"] = f"Bearer {key}"
+    headers["Content-Type"] = "application/json"
+    if "openrouter.ai" in app.state.config.OPENAI_API_BASE_URLS[idx]:
+        headers["HTTP-Referer"] = "https://openwebui.com/"
+        headers["X-Title"] = "Open WebUI"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    r = None
+    session = None
+    streaming = False
+    response = None
 
-            
+    try:
+        session = aiohttp.ClientSession(
+            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+        )
+        r = await session.request(
+            method="POST",
+            url=f"{url}/chat/completions",
+            data=payload,
+            headers=headers,
+        )
+
+        # Check if response is SSE
+        if "text/event-stream" in r.headers.get("Content-Type", ""):
+            streaming = True
+            return StreamingResponse(
+                r.content,
+                status_code=r.status,
+                headers=dict(r.headers),
+                background=BackgroundTask(
+                    cleanup_response, response=r, session=session
+                ),
+            )
+        else:
+            try:
+                response = await r.json()
+            except Exception as e:
+                log.error(e)
+                response = await r.text()
+
+            r.raise_for_status()
+            return response
+    except Exception as e:
+        log.exception(e)
+        error_detail = "ChatK: Server Connection Error"
+        if isinstance(response, dict):
+            if "error" in response:
+                error_detail = f"{response['error']['message'] if 'message' in response['error'] else response['error']}"
+        elif isinstance(response, str):
+            error_detail = response
+
+        raise HTTPException(status_code=r.status if r else 500, detail=error_detail)
+    finally:
+        if not streaming and session:
+            if r:
+                r.close()
+            await session.close()
+
             
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
