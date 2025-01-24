@@ -11,6 +11,7 @@
 		cloneChatById,
 		deleteChatById,
 		getAllTags,
+		getChatById,
 		getChatList,
 		getChatListByTagName,
 		getPinnedChatList,
@@ -46,7 +47,21 @@
 	export let selected = false;
 	export let shiftKey = false;
 
+	let chat = null;
+
 	let mouseOver = false;
+	let draggable = false;
+	$: if (mouseOver) {
+		loadChat();
+	}
+
+	const loadChat = async () => {
+		if (!chat) {
+			draggable = false;
+			chat = await getChatById(localStorage.token, id);
+			draggable = true;
+		}
+	};
 
 	let showShareChatModal = false;
 	let confirmEdit = false;
@@ -73,7 +88,7 @@
 
 	const cloneChatHandler = async (id) => {
 		const res = await cloneChatById(localStorage.token, id).catch((error) => {
-			toast.error(error);
+			toast.error(`${error}`);
 			return null;
 		});
 
@@ -88,16 +103,17 @@
 
 	const deleteChatHandler = async (id) => {
 		const res = await deleteChatById(localStorage.token, id).catch((error) => {
-			toast.error(error);
+			toast.error(`${error}`);
 			return null;
 		});
 
 		if (res) {
 			tags.set(await getAllTags(localStorage.token));
 			if ($chatId === id) {
+				await goto('/');
+
 				await chatId.set('');
 				await tick();
-				goto('/');
 			}
 
 			dispatch('change');
@@ -133,7 +149,8 @@
 			'text/plain',
 			JSON.stringify({
 				type: 'chat',
-				id: id
+				id: id,
+				item: chat
 			})
 		);
 
@@ -204,7 +221,7 @@
 	</DragGhost>
 {/if}
 
-<div bind:this={itemElement} class=" w-full {className} relative group" draggable="true">
+<div bind:this={itemElement} class=" w-full {className} relative group" {draggable}>
 	{#if confirmEdit}
 		<div
 			class=" w-full flex justify-between rounded-lg px-[11px] py-[6px] {id === $chatId ||
@@ -217,6 +234,7 @@
 			<input
 				use:focusEdit
 				bind:value={chatTitle}
+				id="chat-title-input-{id}"
 				class=" bg-transparent w-full outline-none mr-10"
 			/>
 		</div>
@@ -345,10 +363,15 @@
 					archiveChatHandler={() => {
 						archiveChatHandler(id);
 					}}
-					renameHandler={() => {
+					renameHandler={async () => {
 						chatTitle = title;
-
 						confirmEdit = true;
+
+						await tick();
+						const input = document.getElementById(`chat-title-input-${id}`);
+						if (input) {
+							input.focus();
+						}
 					}}
 					deleteHandler={() => {
 						showDeleteConfirm = true;
