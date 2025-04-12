@@ -161,6 +161,9 @@ function inlineKatex(options) {
 		},
 		tokenizer(src, tokens) {
 			return katexTokenizer(src, tokens, false);
+		},
+		renderer(token) {
+			return `${token?.text ?? ''}`;
 		}
 	};
 }
@@ -174,6 +177,9 @@ function blockKatex(options) {
 		},
 		tokenizer(src, tokens) {
 			return katexTokenizer(src, tokens, true);
+		},
+		renderer(token) {
+			return `${token?.text ?? ''}`;
 		}
 	};
 }
